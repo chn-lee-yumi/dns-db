@@ -1,20 +1,26 @@
 # coding=utf-8
-import requests
-import re
-import time
-import random
-import operator
+import base64
+import gzip
 import hashlib
 import hmac
-import base64
-import json
+import operator
+import random
+import re
+import time
+
 import dns.resolver
+import requests
 
 SecretId = "AKIDE2i9KEDOaZCxRyx5qKfdOtBEH3aqlb3L"
 SecretKey = "dwKaAAwpU8eDhuue6"
 ServerURL = "https://cns.api.qcloud.com/v2/index.php"
 
 random.seed(time.time())
+
+
+def sha1(path):
+    with open(path, "rb") as f:
+        return hashlib.sha1(f.read()).hexdigest()
 
 
 def sign(dictionary):
@@ -71,7 +77,7 @@ def get_dns_record(subDomain='', recordType=''):
     }
     domain_options["Signature"] = sign(domain_options)
     r = requests.get(ServerURL, params=domain_options)
-    print(json.dumps(r.json(), indent=4))
+    # print(json.dumps(r.json(), indent=4))
     return r.json()
 
 
@@ -90,18 +96,27 @@ def del_dns_record(recordId):
     print(r.json())
 
 
-def encode_file(path):
+def encode_file(path, enable_gzip=False):
     with open(path, 'rb') as f:
         raw_data = f.read()
+    print("编码前大小：", len(raw_data))
+    if enable_gzip:
+        raw_data = gzip.compress(raw_data)
+        print("压缩后大小：", len(raw_data))
     b64_string = base64.b64encode(raw_data)
-    print(b64_string.decode())
+    print("编码后大小：", len(b64_string))
+    # print(b64_string.decode())
     return b64_string.decode()
 
 
-def decode_file(base64txt, path):
-    print(base64txt)
+def decode_file(base64txt, path, enable_gzip=False):
+    # print(base64txt)
+    print("解码前大小：", len(base64txt))
     raw_data = base64.b64decode(base64txt)
-    print(raw_data)
+    print("解码后大小：", len(raw_data))
+    if enable_gzip:
+        raw_data = gzip.decompress(raw_data)
+    # print(raw_data)
     with open(path, "wb") as f:
         f.write(raw_data)
 
@@ -111,23 +126,22 @@ def add_file(path, subDomain):
     txt_list = re.findall(r'.{255}', base64txt)
     txt_list.append(base64txt[len(txt_list) * 255:])
     for a in range(0, len(txt_list)):
-        if txt_list[a][0] == '/':  # 修复奇怪的bug
-            txt_list[a] = '/' + txt_list[a]
         print(txt_list[a])
         add_dns_record(txt_list[a], "%d.%s" % (a, subDomain), 'TXT')
-        if a % 25 == 0:
+        if (a + 1) % 25 == 0:
             time.sleep(5)  # 休息一下防止超出配额限制
 
 
 def del_file(subDomain):
-    for a in range(611, 10000):
+    for a in range(0, 10000):
         id_list = get_dns_record(subDomain="%d.%s" % (a, subDomain), recordType='TXT')['data']['records']
         if id_list:
+            print("删除：", a)
             del_dns_record(id_list[0]['id'])
         else:
             break
-        # if a % 25 == 0:
-        #     time.sleep(5)  # 休息一下防止超出配额限制
+        if (a + 1) % 25 == 0:
+            time.sleep(5)  # 休息一下防止超出配额限制
 
 
 def get_file(subDomain, path):
@@ -140,12 +154,26 @@ def get_file(subDomain, path):
                 base64txt += str(rdata)[1:-1]
         except dns.resolver.NoAnswer:
             break
+        except dns.resolver.NXDOMAIN:
+            break
     decode_file(base64txt, path)
 
 
 if __name__ == '__main__':
     """测试代码"""
-    # add_file('2.jpg', 'file')
-    # time.sleep(10)
-    get_file('file', 'test')
-    # del_file('file2')
+    # encode_file('1.docx', enable_gzip=True)
+    # src_hash = sha1('1.docx')
+    # add_file('1.docx', 'file')
+    # time.sleep(5)
+    get_file('file', 'test.docx')
+    # new_hash = sha1('test.docx')
+    # if src_hash != new_hash:
+    #     print("前后hash不一致！")
+    # else:
+    #     print("前后hash一致")
+    # del_file('file')
+    # add_dns_record('啊啊啊啊啊', "test", "TXT")
+    # time.sleep(5)
+    # answers = dns.resolver.query("test.gcc.ac.cn", 'TXT')
+    # for answer in answers:
+    #     print(str(answer)[4:-1].encode("ISO-8859-1").decode("punycode"))
